@@ -1,0 +1,185 @@
+{
+    "name": "zwave",
+    "displayName": "Z-Wave",
+    "id": "71942c0e-a0d1-48a1-a22f-41052d9a85d1",
+    "vendors": [
+        {
+            "id": "ba199bbf-7e94-4daf-ab01-76ca3f2d5eff",
+            "name": "zwave",
+            "displayName": "Z-Wave",
+            "thingClasses": [
+                {
+                    "id": "b2609e06-e650-41bb-ba67-a2c0fad9fb85",
+                    "name": "interface",
+                    "displayName": "Z-Wave interface",
+                    "createMethods": ["discovery"],
+                    "interfaces": ["gateway"],
+                    "paramTypes": [
+                        {
+                            "id": "90bc9422-e527-469a-981e-74f56839910b",
+                            "name": "path",
+                            "displayName": "Path",
+                            "type": "QString",
+                            "defaultValue": "/dev/ttyAMA0"
+                        },
+                        {
+                            "id": "fc35e72b-179a-4a2f-ac9f-c4715c0baee1",
+                            "name": "serialNumber",
+                            "displayName": "Serial number",
+                            "type": "QString",
+                            "defaultValue": "",
+                            "readOnly": true
+                        }
+                    ],
+                    "stateTypes": [
+                        {
+                            "id": "c9b13693-fd4a-4ec6-ad3c-f675fc62689e",
+                            "name": "connected",
+                            "displayName": "Connected",
+                            "displayNameEvent": "Connected changed",
+                            "type": "bool",
+                            "cached": false,
+                            "defaultValue": false
+                        },
+                        {
+                            "id": "9a349cd3-35e1-4d5e-bef1-bd3abde8a956",
+                            "name": "homeId",
+                            "displayName": "Home ID",
+                            "displayNameEvent": "Home ID changed",
+                            "type": "uint",
+                            "defaultValue": 0
+                        }
+                    ]
+                },
+                {
+                    "id": "281ab0f2-277a-42c4-a843-53f55c137e25",
+                    "name": "shutter",
+                    "displayName": "Flush Shutter",
+                    "createMethods": ["auto"],
+                    "interfaces": ["shutter", "wirelessconnectable"],
+                    "paramTypes": [
+                        {
+                            "id": "71140a14-1cbe-413b-80d3-46a5407804f5",
+                            "name": "id",
+                            "displayName": "ID",
+                            "type": "QString",
+                            "inputType": "TextLine",
+                            "defaultValue": "-"
+                        }
+                    ],
+                    "stateTypes": [
+                        {
+                            "id": "53e175d0-0107-4890-8561-b4250b9d2c09",
+                            "name": "connected",
+                            "displayName": "Connected",
+                            "displayNameEvent": "Connected changed",
+                            "type": "bool",
+                            "cached": false,
+                            "defaultValue": false
+                        }
+                    ],
+                    "actionTypes": [
+                        {
+                            "id": "7bf56a31-dc92-48fe-bea1-208a91e71764",
+                            "name": "open",
+                            "displayName": "Open"
+                        },
+                        {
+                            "id": "e87fafdb-e324-4cc8-b0ca-215802ce7c49",
+                            "name": "stop",
+                            "displayName": "Stop"
+                        },
+                        {
+                            "id": "e76b1b5a-dd9c-4bce-a848-3d9b086a3c1a",
+                            "name": "close",
+                            "displayName": "Close"
+                        }
+                    ]
+                },
+                {
+                    "id": "69f2a895-dc54-4e42-bb74-c2e95361c57e",
+                    "name": "plug",
+                    "displayName": "Wall plug",
+                    "createMethods": ["auto"],
+                    "interfaces": ["powersocket", "wirelessconnectable"],
+                    "paramTypes": [
+                        {
+                            "id": "1e6b42d5-74b5-4888-981c-5952c8347fba",
+                            "name": "id",
+                            "displayName": "ID",
+                            "type": "QString",
+                            "inputType": "TextLine",
+                            "defaultValue": "-"
+                        }
+                    ],
+                    "stateTypes": [
+                        {
+                            "id": "17190892-d5d0-428e-b3b6-ef0cab94656f",
+                            "name": "connected",
+                            "displayName": "Connected",
+                            "displayNameEvent": "Connected changed",
+                            "type": "bool",
+                            "cached": false,
+                            "defaultValue": false
+                        },
+                        {
+                            "id": "4ddf7a02-4ccd-4ab6-9a78-d932e686cfa4",
+                            "name": "power",
+                            "displayName": "Power",
+                            "displayNameEvent": "Power changed",
+                            "displayNameAction": "Set power",
+                            "type": "bool",
+                            "writable": true,
+                            "defaultValue": false
+                        }
+                    ]
+                },
+                {
+                    "id": "c6672fbc-46ce-446b-9fa4-7c66a01b4845",
+                    "name": "motionSensor",
+                    "displayName": "Motion sensor",
+                    "createMethods": ["auto"],
+                    "interfaces": ["presencesensor", "wirelessconnectable"],
+                    "paramTypes": [
+                        {
+                            "id": "be3949e6-2c32-4762-90dc-e421ce0a355f",
+                            "name": "id",
+                            "displayName": "ID",
+                            "type": "QString",
+                            "inputType": "TextLine",
+                            "defaultValue": "-"
+                        }
+                    ],
+                    "stateTypes": [
+                        {
+                            "id": "86607b06-4fe9-45b2-a495-5ed78eed3ead",
+                            "name": "connected",
+                            "displayName": "Connected",
+                            "displayNameEvent": "Connected changed",
+                            "type": "bool",
+                            "cached": false,
+                            "defaultValue": false
+                        },
+                        {
+                            "id": "001f2e90-8cb0-4a26-82b1-8df3d1daecc9",
+                            "name": "isPresent",
+                            "displayName": "Present",
+                            "displayNameEvent": "Present changed",
+                            "type": "bool",
+                            "defaultValue": false
+                        },
+                        {
+                            "id": "244fe4fc-b96b-4a6c-9748-7f7c7ea5ca03",
+                            "name": "lastSeenTime",
+                            "displayName": "Last seen",
+                            "displayNameEvent": "Last seen changed",
+                            "type": "int",
+                            "unit": "UnixTime",
+                            "defaultValue": 0
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
