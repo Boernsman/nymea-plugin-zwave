@@ -53,14 +53,19 @@ public:
     void thingRemoved(Thing *thing) override;
 
 private:
+    QHash<ThingClassId, ParamTypeId> m_nodeIdParamTypeIds;
+    QHash<ThingClassId, StateTypeId> m_connectedStateTypeIds;
+    QHash<ThingClassId, ActionTypeId> m_removeNodeActionTypeIds;
+
     ZwaveManager *m_zwaveManager = nullptr;
     QHash<ZwaveManager *, ThingSetupInfo *> m_asyncSetup;
 
+    QString findSerialPortPathBySerialnumber(const QString &serialNumber) const;
     bool alreadyAdded(const quint8 &nodeId);
     bool setCalibrationMode(const quint8 &nodeId, const bool &calibrationMode);
 
 private slots:
-    void onDriverReadyChanged(uint32 homeId);
+    void onDriverEvent(quint32 homeId, ZwaveManager::DriverEvent event);
     void onInitialized();
     void onNodesChanged();
 

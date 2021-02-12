@@ -34,14 +34,33 @@
 
 #include <QDebug>
 #include <QSerialPortInfo>
+#include <QCoreApplication>
 
 ZwaveManager::ZwaveManager(QObject *parent) :
-    QObject(parent),
-    m_initialized(false),
-    m_homeId(0)
+    QObject(parent)
 {
+    qRegisterMetaType<DriverEvent>("DriverEvent");
+    qRegisterMetaType<ValueEvent>("ValueEvent");
+    qRegisterMetaType<NodeEvent>("NodeEvent");
+
     qCDebug(dcZwave()) << "ZwaveManager: Using Z-Wave library version" << libraryVersion();
+
+    Options::Create(CONFIG_PATH, NymeaSettings::settingsPath().toStdString(), "");
+
+    Options::Get()->AddOptionInt("SaveLogLevel", LogLevel_None );
+    Options::Get()->AddOptionInt("QueueLogLevel", LogLevel_None );
+    Options::Get()->AddOptionInt("DumpTrigger", LogLevel_None );
+    Options::Get()->AddOptionBool("Logging", false);
+    Options::Get()->AddOptionBool("ConsoleOutput", false);
+
+    Options::Get()->AddOptionInt("PollInterval", 500);
+    Options::Get()->AddOptionBool("IntervalBetweenPolls", true);
+    Options::Get()->AddOptionBool("ValidateValueChanges", true);
+    Options::Get()->Lock();
+
     m_manager = Manager::Create();
+    connect(this, &ZwaveManager::valueEvent, this, &ZwaveManager::onValueEvent);
+    connect(this, &ZwaveManager::nodeEvent, this, &ZwaveManager::onNodeEvent);
 }
 
 ZwaveManager::~ZwaveManager()
@@ -76,27 +95,45 @@ bool ZwaveManager::addDriver(const QString &driverPath)
 
 bool ZwaveManager::removeDriver(const QString &driverPath)
 {
+    qCDebug(dcZwave()) << "ZwaveManger: Remove driver" << driverPath;
     return m_manager->RemoveDriver(driverPath.toStdString());
+}
+
+QString ZwaveManager::controllerPath(quint32 homeId) const
+{
+    QString controllerPath = m_manager->GetControllerPath(homeId).c_str();
+    qCDebug(dcZwave()) << "ZwaveManager: Controller path for " << homeId << "is" << controllerPath;
+    return controllerPath;
+}
+
+void ZwaveManager::softResetController(quint32 homeId)
+{
+    qCDebug(dcZwave()) << "ZwaveManger: Soft reset controller" << homeId;
+    m_manager->SoftReset(homeId);
+}
+
+void ZwaveManager::hardResetController(quint32 homeId)
+{
+    qCDebug(dcZwave()) << "ZwaveManger: Hard reset controller" << homeId;
+    m_manager->ResetController(homeId);
+}
+
+void ZwaveManager::addNode(quint32 homeId)
+{
+    qCDebug(dcZwave()) << "ZwaveManager: Add node ... starting the inclusion process" << homeId;
+    m_manager->AddNode(homeId);
+}
+
+void ZwaveManager::removeNode(quint8 nodeId)
+{
+    Q_UNUSED(nodeId)
+    qCDebug(dcZwave()) << "ZwaveManager: Remove node";
+    //m_manager->RemoveNode()
 }
 
 bool ZwaveManager::init()
 {
     qCDebug(dcZwave()) << "ZwaveManager: Init";
-
-    Options::Create(CONFIG_PATH, NymeaSettings::settingsPath().toStdString(), "");
-
-    Options::Get()->AddOptionInt("SaveLogLevel", LogLevel_None );
-    Options::Get()->AddOptionInt("QueueLogLevel", LogLevel_None );
-    Options::Get()->AddOptionInt("DumpTrigger", LogLevel_None );
-    Options::Get()->AddOptionBool("Logging", false);
-    Options::Get()->AddOptionBool("ConsoleOutput", false);
-
-    Options::Get()->AddOptionInt("PollInterval", 500);
-    Options::Get()->AddOptionBool("IntervalBetweenPolls", true);
-    Options::Get()->AddOptionBool("ValidateValueChanges", true);
-    Options::Get()->Lock();
-
-
 
     if (!m_manager->AddWatcher(onNotification, this)) {
         qCWarning(dcZwave()) << "ZwaveManager: Could not register notification watcher.";
@@ -236,163 +273,131 @@ void ZwaveManager::onNotification(const Notification *notification, void *contex
     ZwaveManager *manager = static_cast<ZwaveManager *>(context);
 
     switch(notification->GetType()) {
-    case Notification::Type_ValueAdded: {
-        //qCDebug(dcZwave()) << "Notification: Value added";
-        ZwaveNode *nodeInfo = manager->getNode(notification);
-        if (!nodeInfo) {
-            qCWarning(dcZwave()) << "Could not find node for new value";
-            break;
-        }
-
-        ValueID valueId = notification->GetValueID();
-        nodeInfo->m_valueIds.append(valueId);
-
-        break;
-    }
-    case Notification::Type_ValueRemoved: {
-        //qCDebug(dcZwave()) << "Notification: Value removed";
-        ZwaveNode *nodeInfo = manager->getNode(notification);
-        if (!nodeInfo)
-            break;
-
-        foreach (const ValueID &valueId, nodeInfo->valueIds()) {
-            if (valueId == notification->GetValueID()) {
-                nodeInfo->m_valueIds.removeOne(valueId);
-                break;
-            }
-        }
-        break;
-    }
-    case Notification::Type_ValueChanged: {
-        //qCDebug(dcZwave()) << "Notification: Value changed";
-        ZwaveNode *nodeInfo = manager->getNode(notification);
-        if (!nodeInfo)
-            break;
-
-        ValueID valueId = notification->GetValueID();
-
-        qCDebug(dcZwave()) << "Value changed:" << Manager::Get()->GetValueLabel(valueId).c_str() << ":" << manager->getValue(valueId);
-
-        break;
-    }
-    case Notification::Type_ValueRefreshed: {
-        //qCDebug(dcZwave()) << "Notification: Value refreshed";
-        break;
-    }
-    case Notification::Type_Group: {
-        // The associations for the node have changed. The application should rebuild any group information it holds about the node.
-        //qCDebug(dcZwave()) << "Notification: Group";
-        break;
-    }
-    case Notification::Type_NodeNew: {
-        //qCDebug(dcZwave()) << "Notification: New node";
-        break;
-    }
-    case Notification::Type_NodeAdded: {
-        //qCDebug(dcZwave()) << "Notification: Node added";
-
-        ZwaveNode *nodeInfo = new ZwaveNode();
-        nodeInfo->m_homeId = notification->GetHomeId();
-        nodeInfo->m_nodeId = notification->GetNodeId();
-        nodeInfo->m_polled = false;
-        nodeInfo->m_name = QString::fromStdString(Manager::Get()->GetNodeName(nodeInfo->m_homeId, nodeInfo->m_nodeId));
-        nodeInfo->m_manufacturerName = QString::fromStdString(Manager::Get()->GetNodeManufacturerName(nodeInfo->m_homeId, nodeInfo->m_nodeId));
-        nodeInfo->m_productName = QString::fromStdString(Manager::Get()->GetNodeProductName(nodeInfo->m_homeId, nodeInfo->m_nodeId));
-        nodeInfo->m_deviceTypeString = QString::fromStdString(Manager::Get()->GetNodeDeviceTypeString(nodeInfo->m_homeId, nodeInfo->m_nodeId));
-        nodeInfo->m_deviceType = Manager::Get()->GetNodeDeviceType(nodeInfo->m_homeId, nodeInfo->m_nodeId);
-
-        manager->m_nodes.append(nodeInfo);
-        emit manager->nodeAdded(nodeInfo);
-
-        break;
-    }
-    case Notification::Type_NodeRemoved: {
-        //qCDebug(dcZwave()) << "Notification: Node removed";
-
-        foreach (ZwaveNode *nodeInfo, manager->m_nodes) {
-            if (nodeInfo->homeId() == notification->GetHomeId() && nodeInfo->nodeId() == notification->GetNodeId()) {
-                manager->m_nodes.removeOne(nodeInfo);
-                emit manager->noderRemoved(nodeInfo->nodeId());
-                nodeInfo->deleteLater();
-            }
-        }
-        break;
-    }
-    case Notification::Type_NodeProtocolInfo: {
-        //qCDebug(dcZwave()) << "Notification: Node protocol info";
-        break;
-    }
-    case Notification::Type_NodeNaming: {
-        //qCDebug(dcZwave()) << "Notification: Node naming";
-        break;
-    }
-    case Notification::Type_NodeEvent: {
-        //qCDebug(dcZwave()) << "Notification: Node event";
-        break;
-    }
-    case Notification::Type_PollingDisabled: {
-        //qCDebug(dcZwave()) << "Notification: Polling disabled";
-        break;
-    }
-    case Notification::Type_PollingEnabled: {
-        //qCDebug(dcZwave()) << "Notification: Polling enabled";
-        break;
-    }
-    case Notification::Type_SceneEvent: {
-        //qCDebug(dcZwave()) << "Notification: Scene event";
-        break;
-    }
-    case Notification::Type_CreateButton: {
-        //qCDebug(dcZwave()) << "Notification: Create button";
-        break;
-    }
-    case Notification::Type_DeleteButton: {
-        //qCDebug(dcZwave()) << "Notification: Delete button";
-        break;
-    }
-    case Notification::Type_ButtonOn: {
-        qCDebug(dcZwave()) << "Notification: Button on";
-        break;
-    }
-    case Notification::Type_ButtonOff: {
-        qCDebug(dcZwave()) << "Notification: Button off";
-        break;
-    }
+    /***********************************
+     *          DRIVER EVENTS
+     **********************************/
     case Notification::Type_DriverReady: {
-        qCDebug(dcZwave()) << "ZwaveManager: Notification: Driver ready";
-
-        emit manager->driverReadyChanged(notification->GetHomeId());
+        quint32 homeId = notification->GetHomeId();
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Driver ready" << homeId;
+        emit manager->driverEvent(homeId, DriverEventReady);
         break;
     }
     case Notification::Type_DriverFailed: {
-        qCDebug(dcZwave()) << "ZwaveManager: Notification: Driver failed";
-        emit manager->driverReadyChanged(notification->GetHomeId());
+        quint32 homeId = notification->GetHomeId();
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Driver failed" << homeId;
+        emit manager->driverEvent(homeId, DriverEventFailed);
         break;
     }
     case Notification::Type_DriverReset: {
-        qCDebug(dcZwave()) << "ZwaveManager: Notification: Driver reset";
-        emit manager->driverReadyChanged(notification->GetHomeId());
+        quint32 homeId = notification->GetHomeId();
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Driver reset" << homeId;
+        emit manager->driverEvent(homeId, DriverEventReset);
         break;
     }
+    case Notification::Type_DriverRemoved: {
+        quint32 homeId = notification->GetHomeId();
+        qCDebug(dcZwave()) << "Notification: Driver removed" << homeId;
+        emit manager->driverEvent(homeId, DriverEventRemoved);
+        break;
+    }
+        /***********************************
+         *          VALUE EVENTS
+         **********************************/
+    case Notification::Type_ValueAdded: {
+        emit manager->valueEvent(notification->GetHomeId(), notification->GetNodeId(), notification->GetValueID().GetId(), ValueEventAdded);
+        break;
+    }
+    case Notification::Type_ValueRemoved: {
+        emit manager->valueEvent(notification->GetHomeId(), notification->GetNodeId(), notification->GetValueID().GetId(), ValueEventRemoved);
+        break;
+    }
+    case Notification::Type_ValueChanged: {
+        emit manager->valueEvent(notification->GetHomeId(), notification->GetNodeId(), notification->GetValueID().GetId(), ValueEventChanged);
+        break;
+    }
+    case Notification::Type_ValueRefreshed: {
+        emit manager->valueEvent(notification->GetHomeId(), notification->GetNodeId(), notification->GetValueID().GetId(), ValueEventRefreshed);
+        break;
+    }
+        /***********************************
+         *          NODE EVENTS
+         **********************************/
+    case Notification::Type_NodeNew: {
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: New node";
+        emit manager->nodeEvent(notification->GetHomeId(), notification->GetNodeId(), NodeEventNew);
+        break;
+    }
+    case Notification::Type_NodeAdded: {
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Node added";
+        emit manager->nodeEvent(notification->GetHomeId(), notification->GetNodeId(), NodeEventAdded);
+        break;
+    }
+    case Notification::Type_NodeRemoved: {
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Node removed";
+
+
+        break;
+    }
+    case Notification::Type_NodeProtocolInfo: {
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: Node protocol info";
+        break;
+    }
+    case Notification::Type_NodeNaming: {
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: Node naming";
+        break;
+    }
+    case Notification::Type_NodeEvent: {
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: Node event";
+        break;
+    }
+    case Notification::Type_PollingDisabled: {
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: Polling disabled";
+        break;
+    }
+    case Notification::Type_PollingEnabled: {
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: Polling enabled";
+        break;
+    }
+    case Notification::Type_SceneEvent: {
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: Scene event";
+        break;
+    }
+    case Notification::Type_CreateButton: {
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: Create button";
+        break;
+    }
+    case Notification::Type_DeleteButton: {
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: Delete button";
+        break;
+    }
+    case Notification::Type_ButtonOn: {
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Button on";
+        break;
+    }
+    case Notification::Type_ButtonOff: {
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Button off";
+        break;
+    }
+
     case Notification::Type_EssentialNodeQueriesComplete: {
-        //qCDebug(dcZwave()) << "Notification: Essential node queries compete";
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Essential node queries complete";
         break;
     }
     case Notification::Type_NodeQueriesComplete: {
-        //qCDebug(dcZwave()) << "Notification: Node queries compete";
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Node queries complete";
         break;
     }
     case Notification::Type_AwakeNodesQueried: {
-        //qCDebug(dcZwave()) << "Notification: Awake nodes queried";
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: Awake nodes queried";
         break;
     }
     case Notification::Type_AllNodesQueriedSomeDead: {
-        //qCDebug(dcZwave()) << "Notification: Awake nodes queried some dead";
+        //qCDebug(dcZwave()) << "ZwaveManager: Notification: All nodes queried some dead";
         emit manager->initialized();
         break;
     }
     case Notification::Type_AllNodesQueried: {
-        qCDebug(dcZwave()) << "Notification: All nodes queried";
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: All nodes queried";
 
         foreach (ZwaveNode *nodeInfo, manager->nodes()) {
             nodeInfo->m_name = QString::fromStdString(Manager::Get()->GetNodeName(nodeInfo->m_homeId, nodeInfo->m_nodeId));
@@ -427,21 +432,15 @@ void ZwaveManager::onNotification(const Notification *notification, void *contex
         break;
     }
     case Notification::Type_Notification: {
-        //qCDebug(dcZwave()) << "Notification: Notification";
-        break;
-    }
-    case Notification::Type_DriverRemoved: {
-        qCDebug(dcZwave()) << "Notification: Driver removed";
-        notification->GetHomeId();
-        emit manager->driverReadyChanged();
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Notification";
         break;
     }
     case Notification::Type_ControllerCommand: {
-        qCDebug(dcZwave()) << "Notification: Controller command";
+        qCDebug(dcZwave()) << "ZwaveManager: Notification: Controller command";
         break;
     }
     default: {
-        qCWarning(dcZwave()) << "Unhaldled notification received" << notification->GetType() << QString::fromStdString(notification->GetAsString());
+        qCWarning(dcZwave()) << "ZwaveManager: Unhaldled notification received" << notification->GetType() << QString::fromStdString(notification->GetAsString());
     }
 
     }
@@ -476,3 +475,86 @@ QString ZwaveManager::valueTypeToString(const ValueID &valueId)
     }
 }
 
+void ZwaveManager::onNodeEvent(quint32 homeId, quint8 nodeId, NodeEvent event)
+{
+    switch (event) {
+    case NodeEventAdded: {
+
+        ZwaveNode *nodeInfo = new ZwaveNode(this);
+        nodeInfo->m_homeId = homeId;
+        nodeInfo->m_nodeId = nodeId;
+        nodeInfo->m_polled = false;
+        nodeInfo->m_name = QString::fromStdString(m_manager->GetNodeName(nodeInfo->m_homeId, nodeInfo->m_nodeId));
+        nodeInfo->m_manufacturerName = QString::fromStdString(m_manager->GetNodeManufacturerName(nodeInfo->m_homeId, nodeInfo->m_nodeId));
+        nodeInfo->m_productName = QString::fromStdString(m_manager->GetNodeProductName(nodeInfo->m_homeId, nodeInfo->m_nodeId));
+        nodeInfo->m_deviceTypeString = QString::fromStdString(m_manager->GetNodeDeviceTypeString(nodeInfo->m_homeId, nodeInfo->m_nodeId));
+        nodeInfo->m_deviceType = m_manager->GetNodeDeviceType(nodeInfo->m_homeId, nodeInfo->m_nodeId);
+        nodeInfo->m_manufacturerId =  QString::fromStdString(m_manager->GetNodeManufacturerId(nodeInfo->m_homeId, nodeInfo->m_nodeId));
+
+        m_nodes.append(nodeInfo);
+        emit nodeAdded(nodeInfo);
+        break;
+    }
+    case NodeEventRemoved: {
+        foreach (ZwaveNode *nodeInfo, m_nodes) {
+            if (nodeInfo->homeId() == homeId && nodeInfo->nodeId() == nodeId) {
+                m_nodes.removeOne(nodeInfo);
+                emit nodeRemoved(nodeInfo->nodeId());
+                nodeInfo->deleteLater();
+            }
+        }
+        emit nodeRemoved(nodeId);
+    }
+    default:
+        break;
+    }
+}
+
+void ZwaveManager::onValueEvent(quint32 homeId, quint8 nodeId,  quint64 valueId, ValueEvent event)
+{
+    Q_UNUSED(homeId)
+    Q_UNUSED(nodeId)
+    Q_UNUSED(valueId)
+    Q_UNUSED(event)
+    ValueID vid(homeId, valueId);
+    /*if (!m_manager->IsValueSet(vid)) {
+        qCWarning(dcZwave()) << "ZWaveManager: valueId is not set" << valueId;
+        return;
+    }*/
+
+    switch (event) {
+    case ValueEventAdded: {
+        qCDebug(dcZwave()) << "ZwaveManager: Value added" << nodeId << valueId << m_manager->GetValueHelp(vid).c_str();
+        break;
+    }
+    case ValueEventChanged: {
+        qCDebug(dcZwave()) << "ZwaveManager: Value changed";
+        break;
+    }
+    case ValueEventRemoved: {
+        qCDebug(dcZwave()) << "ZwaveManager: Value removed";
+        break;
+    }
+    default:
+        break;
+    }
+
+    //        ZwaveNode *nodeInfo = manager->getNode(notification);
+    //        if (!nodeInfo) {
+    //            qCWarning(dcZwave()) << "Could not find node for new value";
+    //            break;
+    //        }
+
+    //        ValueID valueId = notification->GetValueID();
+    //        nodeInfo->m_valueIds.append(valueId);
+
+    //    ZwaveNode *nodeInfo = manager->getNode(notification);
+    //    if (!nodeInfo)
+    //        break;
+
+    //    ValueID valueId = notification->GetValueID();
+
+    //    qCDebug(dcZwave()) << "Value changed:" << Manager::Get()->GetValueLabel(valueId).c_str() << ":" << manager->getValue(valueId);
+
+
+}

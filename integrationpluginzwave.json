@@ -48,8 +48,41 @@
                             "displayNameEvent": "Home ID changed",
                             "type": "uint",
                             "defaultValue": 0
+                        },
+                        {
+                            "id": "7c0640b1-0ea7-4008-8617-b352e2db68a81",
+                            "name": "manufacturer",
+                            "displayName": "Manufacturer",
+                            "displayNameEvent": "Manufacturer changed",
+                            "type": "QString",
+                            "defaultValue": "Unknown"
+                        },
+                        {
+                            "id": "20903898-7be7-4a43-9838-d04b1f761c65",
+                            "name": "productName",
+                            "displayName": "Product name",
+                            "displayNameEvent": "Product name changed",
+                            "type": "QString",
+                            "defaultValue": "Unknown"
                         }
-                    ]
+                    ],
+                    "actionTypes": [
+                        {
+                            "id": "28be4e4d-f4c3-4b31-97ee-9ce72693027c",
+                            "name": "softReset",
+                            "displayName": "Soft reset"
+                        },
+                        {
+                            "id": "f12deccf-a220-4a29-b00e-06c5f7fcb179",
+                            "name": "hardReset",
+                            "displayName": "Hard reset"
+                        },
+                        {
+                            "id": "9618fe8c-a8cc-481f-bbcf-3061ea9f6c1d",
+                            "name": "addNode",
+                            "displayName": "addNode"
+                        }
+                     ]
                 },
                 {
                     "id": "281ab0f2-277a-42c4-a843-53f55c137e25",
@@ -93,6 +126,11 @@
                             "id": "e76b1b5a-dd9c-4bce-a848-3d9b086a3c1a",
                             "name": "close",
                             "displayName": "Close"
+                        },
+                        {
+                            "id": "95d274cf-c584-4dec-83bd-86715d3299a3",
+                            "name": "removeNode",
+                            "displayName": "removeNode"
                         }
                     ]
                 },
@@ -131,6 +169,13 @@
                             "type": "bool",
                             "writable": true,
                             "defaultValue": false
+                        }
+                    ],
+                    "actionTypes": [
+                        {
+                            "id": "6df95b3e-9ecc-41f4-8ad9-2318c9ee1a97",
+                            "name": "removeNode",
+                            "displayName": "removeNode"
                         }
                     ]
                 },
@@ -176,6 +221,13 @@
                             "type": "int",
                             "unit": "UnixTime",
                             "defaultValue": 0
+                        }
+                    ],
+                    "actionTypes": [
+                        {
+                            "id": "9b665bba-aa3f-44e3-b839-7964d6b8dec7",
+                            "name": "removeNode",
+                            "displayName": "removeNode"
                         }
                     ]
                 }

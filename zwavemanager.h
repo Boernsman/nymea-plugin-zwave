@@ -51,6 +51,34 @@ class ZwaveManager : public QObject
 {
     Q_OBJECT
 public:
+    enum DriverEvent {
+        DriverEventReady,
+        DriverEventReset,
+        DriverEventFailed,
+        DriverEventRemoved
+    };
+    Q_ENUM(DriverEvent)
+
+    enum ValueEvent {
+        ValueEventAdded,
+        ValueEventRemoved,
+        ValueEventChanged,
+        ValueEventRefreshed,
+        ValueEventPollingEnabled,
+        ValueEventPollingDisabled
+    };
+    Q_ENUM(ValueEvent)
+
+    enum NodeEvent {
+        NodeEventNew,
+        NodeEventAdded,
+        NodeEventRemoved,
+        NodeEventNaming,
+        NodeEventProtocolInfo,
+        NodeEventNodeEvent
+    };
+    Q_ENUM(NodeEvent)
+
     explicit ZwaveManager(QObject *parent = 0);
     ~ZwaveManager();
 
@@ -61,7 +89,13 @@ public:
     bool init();
     bool addDriver(const QString &driverPath = "/dev/ttyACM0");
     bool removeDriver(const QString &driverPath = "/dev/ttyACM0");
+    QString controllerPath(quint32 homeId) const;
+    void softResetController(quint32 homeId);
+    void hardResetController(quint32 homeId);
     void disable();
+
+    void addNode(quint32 homeId); // start the inclusion process
+    void removeNode(quint8 nodeId);
 
     QList<ZwaveNode *> nodes() const;
     ZwaveNode *getNode(const quint8 &nodeId);
@@ -69,20 +103,10 @@ public:
     bool pressButton(const quint8 &nodeId, const ValueID &valueId);
     bool releaseButton(const quint8 &nodeId, const ValueID &valueId);
 
-signals:
-    void driverReadyChanged(uint32 homeId);
-    void initialized();
-    void nodeDiscoveryFinished();
-
-    void nodeAdded(ZwaveNode *node);
-    void noderRemoved(const quint8 &nodeId);
-
 private:
     Manager *m_manager = nullptr;
 
-    bool m_initialized;
-
-    quint32 m_homeId;
+    bool m_initialized = false;
 
     QList<ZwaveNode *> m_nodes;
 
@@ -94,6 +118,21 @@ private:
     static void onNotification(const Notification *notification, void* context);
     QString valueTypeToString(const ValueID &valueId);
 
+signals:
+    void driverEvent(quint32 homeId, DriverEvent event);
+    void valueEvent(quint32 homeId, quint8 nodeId,  quint64 valueId, ValueEvent event);
+    void nodeEvent(quint32 homeId, quint8 nodeId, NodeEvent event);
+
+    void initialized();
+    void nodeDiscoveryFinished();
+
+    void nodeAdded(ZwaveNode *node);
+    void nodeRemoved(const quint8 &nodeId);
+
+
+private slots:
+    void onNodeEvent(quint32 homeId, quint8 nodeId, NodeEvent event);
+    void onValueEvent(quint32 homeId, quint8 nodeId,  quint64 valueId, ValueEvent event);
 };
 
 #endif // ZWAVEMANAGER_H

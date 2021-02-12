@@ -37,7 +37,18 @@ using namespace OpenZWave;
 
 IntegrationPluginZwave::IntegrationPluginZwave()
 {
+    m_nodeIdParamTypeIds.insert(plugThingClassId, plugThingIdParamTypeId);
+    m_nodeIdParamTypeIds.insert(shutterThingClassId, shutterThingIdParamTypeId);
+    m_nodeIdParamTypeIds.insert(motionSensorThingClassId, motionSensorThingIdParamTypeId);
 
+    m_connectedStateTypeIds.insert(interfaceThingClassId, interfaceConnectedStateTypeId);
+    m_connectedStateTypeIds.insert(plugThingClassId, plugConnectedStateTypeId);
+    m_connectedStateTypeIds.insert(shutterThingClassId, shutterConnectedStateTypeId);
+    m_connectedStateTypeIds.insert(motionSensorThingClassId, motionSensorThingClassId);
+
+    m_removeNodeActionTypeIds.insert(plugThingClassId, plugRemoveNodeActionTypeId);
+    m_removeNodeActionTypeIds.insert(shutterThingClassId, shutterRemoveNodeActionTypeId);
+    m_removeNodeActionTypeIds.insert(motionSensorThingClassId, motionSensorRemoveNodeActionTypeId);
 }
 
 void IntegrationPluginZwave::discoverThings(ThingDiscoveryInfo *info)
@@ -46,16 +57,34 @@ void IntegrationPluginZwave::discoverThings(ThingDiscoveryInfo *info)
     Q_FOREACH (QSerialPortInfo port, QSerialPortInfo::availablePorts()) {
 
         qCDebug(dcZwave()) << "Found serial port:" << port.portName();
-        QString description = port.manufacturer() + " " + port.description() + " " + port.serialNumber();
-        ThingDescriptor thingDescriptor(info->thingClassId(), port.portName(), description);
+        qCDebug(dcZwave()) << "     - Manufacturer:" << port.manufacturer();
+        qCDebug(dcZwave()) << "     - Description:" << port.description();
+        qCDebug(dcZwave()) << "     - Serial number:" << port.serialNumber();
+        qCDebug(dcZwave()) << "     - Location:" << port.systemLocation();
+        qCDebug(dcZwave()) << "     - Is busy:" << port.isBusy();
+
+        if (port.isBusy())
+            continue;
+
+        QString serialnumber =  port.serialNumber();
+        if (serialnumber.isEmpty()) {
+            // User model identification instead of the serial number
+            // This won't work properly with multible interface of the same model
+            serialnumber = port.manufacturer() + port.description();
+        }
+        ThingDescriptor thingDescriptor(info->thingClassId(), port.portName(), serialnumber);
         ParamList params;
-        foreach (Thing *existingThing, myThings()) {
-            if (existingThing->paramValue().toString() == port.serialNumber()) {
-                thingDescriptor.setThingId(existingThing->id());
-                break;
+        if (!serialnumber.isEmpty()) {
+            // Some serial interfaces don't have a serial number
+            foreach (Thing *existingThing, myThings()) {
+                if (existingThing->paramValue(interfaceThingSerialNumberParamTypeId).toString() == serialnumber) {
+                    thingDescriptor.setThingId(existingThing->id());
+                    break;
+                }
             }
         }
-        params.append(Param(stickThingPathParamTypeId, port.portName()));
+        params.append(Param(interfaceThingPathParamTypeId, port.systemLocation()));
+        params.append(Param(interfaceThingSerialNumberParamTypeId, serialnumber));
         thingDescriptor.setParams(params);
         info->addThingDescriptor(thingDescriptor);
     }
@@ -67,32 +96,55 @@ void IntegrationPluginZwave::setupThing(ThingSetupInfo *info)
     qCDebug(dcZwave()) << "Setup thing" << info->thing()->name();
     Thing *thing = info->thing();
 
-    //device->setStateValue(availableStateTypeId, true);
-    if (thing->thingClassId() == stickThingClassId) {
-        qCDebug(dcZwave()) << "Setting up z-wave manager";
+    if (thing->thingClassId() == interfaceThingClassId) {
 
-        Q_FOREACH (Thing *existingThing, myThings().filterByThingClassId(stickThingClassId)) {
-            if ()
-        }
-        if (m_zwaveManager) {
-            qCWarning(dcZwave()) << "Only one Z-Wave interface supported";
-            return info->finish(Thing::ThingErrorHardwareFailure, "Only one interface supported");
-        }
+        if (!m_zwaveManager) {
             m_zwaveManager = new ZwaveManager(this);
             connect(info, &ThingSetupInfo::aborted, m_zwaveManager, &ZwaveManager::deleteLater);
+
             if (!m_zwaveManager->init()) {
-                qCWarning(dcZwave()) << "Could not enable z-wave";
+                qCWarning(dcZwave()) << "Could not init Z-Wave manager";
                 return info->finish(Thing::ThingErrorHardwareNotAvailable);
             }
         }
 
-        //TODO find serial port by serial number
-        connect(m_zwaveManager, &ZwaveManager::driverReadyChanged, this, &IntegrationPluginZwave::onDriverReadyChanged);
+        //TODO cleanup after reconfiguration
 
-        connect(m_zwaveManager, &ZwaveManager::driverReadyChanged, this, &IntegrationPluginZwave::onDriverReadyChanged);
+        QString serialNumber = thing->paramValue(interfaceThingSerialNumberParamTypeId).toString();
+        QString path;
+        if (serialNumber.isEmpty()) {
+            path = thing->paramValue(interfaceThingPathParamTypeId).toString();
+        } else {
+            path = findSerialPortPathBySerialnumber(serialNumber);
+            thing->setParamValue(interfaceThingPathParamTypeId, path);
+        }
+
+        if (!m_zwaveManager->addDriver(path)) {
+            qCWarning(dcZwave()) << "Could not add driver";
+            return info->finish(Thing::ThingErrorHardwareNotAvailable);
+        }
+
+        connect(m_zwaveManager, &ZwaveManager::driverEvent, info, [info, this] (quint32 homeID, ZwaveManager::DriverEvent event) {
+            // TODOs for multi driver:
+            // Check if the homeId is already in the system
+            // If not then it is probably the newly added driver
+            QString controllerPath = info->thing()->paramValue(interfaceThingPathParamTypeId).toString();
+            if (controllerPath == m_zwaveManager->controllerPath(homeID)) {
+                if (event == ZwaveManager::DriverEventReady) {
+                    qCDebug(dcZwave()) << "Driver ready for" << info->thing()->name();
+                    info->thing()->setStateValue(interfaceHomeIdStateTypeId, homeID);
+                    info->thing()->setStateValue(interfaceConnectedStateTypeId, true);
+                    info->finish(Thing::ThingErrorNoError);
+                } else if (event == ZwaveManager::DriverEventFailed) {
+                    info->finish(Thing::ThingErrorHardwareFailure);
+                }
+            }
+        });
+
+        connect(m_zwaveManager, &ZwaveManager::driverEvent, this, &IntegrationPluginZwave::onDriverEvent);
         connect(m_zwaveManager, &ZwaveManager::initialized, this, &IntegrationPluginZwave::onInitialized);
         connect(m_zwaveManager, &ZwaveManager::nodeAdded, this, &IntegrationPluginZwave::onNodeAdded);
-        connect(m_zwaveManager, &ZwaveManager::noderRemoved, this, &IntegrationPluginZwave::onNodeRemoved);
+        connect(m_zwaveManager, &ZwaveManager::nodeRemoved, this, &IntegrationPluginZwave::onNodeRemoved);
 
         //connect(manager, &ZwaveManager::destroyed, this, [manager, this]{
         //    m_asyncSetup.remove(manager);
@@ -112,6 +164,18 @@ void IntegrationPluginZwave::setupThing(ThingSetupInfo *info)
 void IntegrationPluginZwave::postSetupThing(Thing *thing)
 {
     qCDebug(dcZwave()) << "Post setup thing" << thing->name();
+
+    if (thing->thingClassId() == interfaceThingClassId) {
+
+    } else if (thing->thingClassId() == shutterThingClassId) {
+
+    } else if (thing->thingClassId() == plugThingClassId) {
+
+    } else if (thing->thingClassId() == motionSensorThingClassId) {
+
+    } else {
+        qCWarning(dcZwave()) << "Post setup thing: thing class not found" << thing->name() << thing->thingClassId();
+    }
 }
 
 void IntegrationPluginZwave::executeAction(ThingActionInfo *info)
@@ -119,7 +183,33 @@ void IntegrationPluginZwave::executeAction(ThingActionInfo *info)
     Thing *thing = info->thing();
     Action action = info->action();
 
-    if (thing->thingClassId() == stickThingClassId) {
+    if (m_removeNodeActionTypeIds.contains(thing->thingClassId())) {
+        if (action.actionTypeId() == m_removeNodeActionTypeIds.value(thing->thingClassId())) {
+            quint8 nodeId = static_cast<quint8>(thing->paramValue(m_nodeIdParamTypeIds.value(thing->thingClassId())).toUInt());
+            m_zwaveManager->removeNode(nodeId);
+            return info->finish(Thing::ThingErrorNoError);
+        }
+    }
+
+    if (thing->thingClassId() == interfaceThingClassId) {
+
+        quint32 homeId = thing->stateValue(interfaceHomeIdStateTypeId).toUInt();
+        if (action.actionTypeId() == interfaceSoftResetActionTypeId) {
+            m_zwaveManager->softResetController(homeId);
+            return info->finish(Thing::ThingErrorNoError);
+
+        } else if (action.actionTypeId() == interfaceHardResetActionTypeId) {
+            m_zwaveManager->hardResetController(homeId);
+            return info->finish(Thing::ThingErrorNoError);
+        } else if (action.actionTypeId() == interfaceHardResetActionTypeId) {
+            m_zwaveManager->hardResetController(homeId);
+            return info->finish(Thing::ThingErrorNoError);
+        } else if (action.actionTypeId() == interfaceAddNodeActionTypeId) {
+            m_zwaveManager->addNode(homeId);
+            return info->finish(Thing::ThingErrorNoError);
+        } else {
+            return info->finish(Thing::ThingErrorActionTypeNotFound);
+        }
 
     } else if (thing->thingClassId() == shutterThingClassId) {
 
@@ -180,25 +270,40 @@ void IntegrationPluginZwave::executeAction(ThingActionInfo *info)
 void IntegrationPluginZwave::thingRemoved(Thing *thing)
 {
     qCDebug(dcZwave()) << "Delete" << thing->name();
-    if (thing->thingClassId() == stickThingClassId) {
-
+    if (thing->thingClassId() == interfaceThingClassId) {
+        qCDebug(dcZwave()) << "Deleting Z-Wave manager";
+        m_zwaveManager->deleteLater();
+        m_zwaveManager = nullptr;
     } else if (thing->thingClassId() == shutterThingClassId) {
 
     }
 
     if (myThings().isEmpty()) {
-        qCDebug(dcZwave()) << "Deleting Z-Wave manager";
-        m_zwaveManager->deleteLater();
-        m_zwaveManager = nullptr;
+
         qCDebug(dcZwave()) << "Stopping timer";
     }
+}
+
+QString IntegrationPluginZwave::findSerialPortPathBySerialnumber(const QString &serialNumber) const
+{
+    Q_FOREACH (QSerialPortInfo port, QSerialPortInfo::availablePorts()) {
+
+        QString portSerialNumber =  port.serialNumber();
+        if (portSerialNumber.isEmpty()) {
+            portSerialNumber = port.manufacturer() + port.description();
+        }
+        if (portSerialNumber == serialNumber) {
+            return port.systemLocation();
+        }
+    }
+    return "";
 }
 
 bool IntegrationPluginZwave::alreadyAdded(const quint8 &nodeId)
 {
     foreach (Thing *thing, myThings()) {
-        if (thing->thingClassId() == shutterThingClassId) {
-            if (nodeId == (quint8)thing->paramValue(shutterThingIdParamTypeId).toUInt()){
+        if (m_nodeIdParamTypeIds.contains(thing->thingClassId())) {
+            if (nodeId == (quint8)thing->paramValue(m_nodeIdParamTypeIds.value(thing->thingClassId())).toUInt()) {
                 return true;
             }
         }
@@ -213,9 +318,34 @@ bool IntegrationPluginZwave::setCalibrationMode(const quint8 &nodeId, const bool
     return true;
 }
 
-void IntegrationPluginZwave::onDriverReadyChanged()
+void IntegrationPluginZwave::onDriverEvent(quint32 homeID, ZwaveManager::DriverEvent event)
 {
-    qCDebug(dcZwave()) << "On driver ready changed";
+    QString path = m_zwaveManager->controllerPath(homeID);
+    qCDebug(dcZwave()) << "On driver event" << homeID << event << path;
+
+    Q_FOREACH(Thing *thing, myThings().filterByThingClassId(interfaceThingClassId)) {
+        if (thing->stateValue(interfaceHomeIdStateTypeId).toUInt() == homeID) {
+            if (event == ZwaveManager::DriverEventReady) {
+                thing->setStateValue(interfaceConnectedStateTypeId, true);
+            } else if (event == ZwaveManager::DriverEventFailed) {
+                thing->setStateValue(interfaceConnectedStateTypeId, false);
+            }
+            return;
+        }
+    }
+    // After a hard reset the homeId changes
+    // Both search methods are required
+    Q_FOREACH(Thing *thing, myThings().filterByThingClassId(interfaceThingClassId)) {
+        if (thing->paramValue(interfaceThingPathParamTypeId).toString() == path) {
+            thing->setStateValue(interfaceHomeIdStateTypeId, homeID);
+            if (event == ZwaveManager::DriverEventReady) {
+                thing->setStateValue(interfaceConnectedStateTypeId, true);
+            } else if (event == ZwaveManager::DriverEventFailed) {
+                thing->setStateValue(interfaceConnectedStateTypeId, false);
+            }
+            return;
+        }
+    }
 }
 
 void IntegrationPluginZwave::onInitialized()
@@ -227,9 +357,9 @@ void IntegrationPluginZwave::onInitialized()
         //qCDebug(dcZwave()) << "+" << node->name() << node->manufacturerName() << node->productName() << node->deviceType();
 
         foreach (Thing *thing, myThings()) {
-            if (thing->thingClassId() == shutterThingClassId) {
-                if ((quint8)thing->paramValue(shutterThingIdParamTypeId).toUInt() == node->nodeId()) {
-                    thing->setStateValue(shutterConnectedStateTypeId, true);
+            if (m_nodeIdParamTypeIds.contains(thing->thingClassId())) {
+                if ((quint8)thing->paramValue(m_nodeIdParamTypeIds.value(thing->thingClassId())).toUInt() == node->nodeId()) {
+                    thing->setStateValue(m_connectedStateTypeIds.value(thing->thingClassId()), true);
                 }
             }
         }
@@ -253,12 +383,16 @@ void IntegrationPluginZwave::onNodesChanged()
 
 void IntegrationPluginZwave::onNodeAdded(ZwaveNode *node)
 {
-    qCDebug(dcZwave()) << "+" << node->name() << node->manufacturerName() << node->productName() << node->deviceType();
+    qCDebug(dcZwave()) << "On node added " << node->name();
+    qCDebug(dcZwave()) << "     - Manufacturer:" << node->manufacturerName();
+    qCDebug(dcZwave()) << "     - Product name:" << node->productName();
+    qCDebug(dcZwave()) << "     - Device type Id:" << node->deviceType();
+    qCDebug(dcZwave()) << "     - Device type:" << node->deviceTypeString();
 
     foreach (Thing *thing, myThings()) {
-        if (thing->thingClassId() == shutterThingClassId) {
-            if ((quint8)thing->paramValue(shutterThingIdParamTypeId).toUInt() == node->nodeId())
-                thing->setStateValue(shutterConnectedStateTypeId, true);
+        if (m_nodeIdParamTypeIds.contains(thing->thingClassId())) {
+            if ((quint8)thing->paramValue(m_nodeIdParamTypeIds.value(thing->thingClassId())).toUInt() == node->nodeId())
+                thing->setStateValue(m_connectedStateTypeIds.value(thing->thingClassId()), true);
 
         }
     }
@@ -269,8 +403,8 @@ void IntegrationPluginZwave::onNodeRemoved(const quint8 &nodeId)
     qCDebug(dcZwave()) << "Node removed: " << nodeId;
 
     foreach (Thing *thing, myThings()) {
-        if (thing->thingClassId() == shutterThingClassId) {
-            if ((quint8)thing->paramValue(shutterThingIdParamTypeId).toUInt() == nodeId) {
+        if (m_nodeIdParamTypeIds.contains(thing->thingClassId())) {
+            if ((quint8)thing->paramValue(m_nodeIdParamTypeIds.value(thing->thingClassId())).toUInt() == nodeId) {
                 emit autoThingDisappeared(thing->id());
             }
         }

@@ -71,6 +71,7 @@ private:
 
     QString m_name;
     QString m_manufacturerName;
+    QString m_manufacturerId;
     QString m_productName;
     QString m_deviceTypeString;
 
