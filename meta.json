@@ -1,0 +1,16 @@
+{
+    "title": "Z-Wave",
+    "tagline": "Connect and control Z-Wave devices.",
+    "icon": "zwave.svg",
+    "stability": "consumer",
+    "offline": true,
+    "technologies": [
+        "zwave"
+    ],
+    "categories": [
+        "sensor",
+        "switch",
+        "relay",
+        "socket"
+    ]
+}
